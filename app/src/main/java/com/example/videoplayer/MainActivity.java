@@ -1,12 +1,17 @@
 package com.example.videoplayer;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 import android.media.MediaPlayer;
 import android.media.session.MediaSession;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.media.session.MediaSessionCompat;
@@ -18,140 +23,96 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 
-public class MainActivity extends AppCompatActivity implements TextureView.SurfaceTextureListener {
-    private static final String LOG_TAG = "player";
-    MediaSessionCompat mediaSession;
-    MediaControllerCompat mediaController;
-    PlaybackStateCompat.Builder statebuilder;
-    MediaPlayer mediaPlayer;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 
-    private boolean mSurfaceTextureReady = false;
+public class MainActivity extends AppCompatActivity {
 
-    // -----------------------------------------------------------------------
-    // lifecycles
-    //
-
+    @RequiresApi(24)
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        setMediaSession();
+        TextureView textureView = (TextureView) findViewById(R.id.textureView);
 
-        setStatebuilder();
 
-        setMediaController();
+        //-------------------------------------------------------------
 
-        setMediaPlayer();
-
-        ImageButton play = (ImageButton) findViewById(R.id.playBtn);
-
-        play.setOnClickListener(new View.OnClickListener() {
+        textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
-            public void onClick(View v) {
-                TextureView textureView = (TextureView) findViewById(R.id.textureView);
-                SurfaceTexture st = textureView.getSurfaceTexture();
-                Surface surface = new Surface(st);
-                mediaPlayer.setSurface(surface);
+            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+                createVideoThread(new Surface(surface));
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
+
+            }
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+                return false;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
+
             }
         });
 
-        TextureView textureView = (TextureView) findViewById(R.id.textureView);
-        textureView.setSurfaceTextureListener(this);
     }
 
-    @Override
-    protected void onStop() {
-        super.onStop();
-        mediaPlayer.release();
-        mediaPlayer = null;
+    private void createVideoThread(Surface surface) {
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                MediaExtractor extractor = new MediaExtractor();
+                MediaCodec decoder = null;
+
+                try {
+                    extractor.setDataSource(getResources().openRawResourceFd(R.raw.video));
+                    Log.d("테스트", extractor.getTrackCount() + "");
+                    for (int i = 0; i < extractor.getTrackCount(); i++) {
+                        MediaFormat format = extractor.getTrackFormat(i);
+                        String mime = format.getString(MediaFormat.KEY_MIME);
+                        extractor.selectTrack(i);
+                        decoder = MediaCodec.createDecoderByType(mime);
+                        decoder.configure(format, surface, null, 0);
+                        break;
+                    }
+
+                    if (decoder == null) {
+                        return;
+                    }
+
+                    decoder.start();
+
+                    doExtract(extractor, decoder);
+
+                    decoder.stop();
+                    decoder.release();
+                    extractor.release();
+
+                } catch (IOException ioException) {
+                    ioException.printStackTrace();
+                }
+            }
+        });
+
+        thread.start();
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        mediaSession.release();
-    }
+    private void doExtract(MediaExtractor extractor, MediaCodec decoder) {
+        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
 
+        boolean inEos = false;
+        boolean outEos = false;
 
+        while(!outEos) {
+            if(!inEos) {
 
-
-    // -----------------------------------------------------------------------
-    // SurfaceTexture lifecycles
-    //
-
-    @Override
-    public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-        mSurfaceTextureReady = true;
-        updateControls();
-    }
-
-    @Override
-    public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
-        //ignore
-    }
-
-    @Override
-    public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
-        mSurfaceTextureReady = false;
-        return true;
-    }
-
-    @Override
-    public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
-        //ignore
-    }
-
-    private void updateControls() {
-        ImageButton playBtn = (ImageButton) findViewById(R.id.playBtn);
-        playBtn.setEnabled(mSurfaceTextureReady);
-    }
-
-
-    //--------------------------------------------------------------------------
-    //
-    //
-
-    public void setMediaSession() {
-        // Create a MediaSessionCompat
-        mediaSession = new MediaSessionCompat(this, LOG_TAG);
-
-        // Enable callbacks from MediaButtons and TransportControls
-        // All media sessions are expected to handle media button events / trasport controls now -> deprecated
-        mediaSession.setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS |
-                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
-
-        // Do not let MediaButtons restart the player when the  app is not visible
-        mediaSession.setMediaButtonReceiver(null);
-
-        // MySessionCallback has methods that handle callbacks from a media controller
-        mediaSession.setCallback(new MySessionCallback());
-        mediaSession.setActive(true);
-    }
-
-    public void setMediaController() {
-        // Create a MediaControllerCompat
-        mediaController = new MediaControllerCompat(this, mediaSession);
-
-        MediaControllerCompat.setMediaController(this, mediaController);
-    }
-
-    public void setStatebuilder() {
-        // Set an initial PlaybackState with ACTION_PLAY, so media buttons can start the player.
-        statebuilder = new PlaybackStateCompat.Builder()
-                .setActions(
-                        PlaybackStateCompat.ACTION_PLAY |
-                                PlaybackStateCompat.ACTION_PLAY_PAUSE);
-
-        mediaSession.setPlaybackState(statebuilder.build());
-    }
-
-    public void setMediaPlayer() {
-        // Create Mediaplayer
-        mediaPlayer = MediaPlayer.create(this, R.raw.video);
-
-
-
+            }
+        }
     }
 }
