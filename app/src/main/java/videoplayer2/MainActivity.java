@@ -1,47 +1,64 @@
 package videoplayer2;
 
+import android.app.Activity;
+import android.content.res.AssetFileDescriptor;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.videoplayer.R;
+import com.example.videoplayer.databinding.ActivityMainBinding;
+
+import java.io.IOException;
 
 public class MainActivity extends AppCompatActivity {
-    TextureView textureView;
-    ImageButton playBtn;
-    ImageButton pauseBtn;
-    ImageButton previousBtn;
-    ImageButton nextBtn;
-    SeekBar seekBar;
+
+    private ActivityMainBinding binding;
 
     VideoPlayer.FrameCallBack frameCallBack;
     PlayTask playTask;
-    VideoPlayer.PlayerFeedback feedback;
+    VideoPlayer videoPlayer;
+
+    boolean touch;
+
+    // ---------------------------------------------------------------
+    // lifecycles
+    //
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        init_views();
-
-        setFeedback();
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        View view = binding.getRoot();
+        setContentView(view);
 
         setFrameCallBack();
 
-        textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+        binding.textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override
             public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-                VideoPlayer videoPlayer = new VideoPlayer(new Surface(surface), frameCallBack);
-                playTask = new PlayTask(videoPlayer, feedback);
+                AssetFileDescriptor videoFile = getResources().openRawResourceFd(R.raw.video);
+                videoPlayer = new VideoPlayer(videoFile, new Surface(surface), frameCallBack);
+
+                try {
+                    playTask = new PlayTask(videoPlayer);
+                    int duration = videoPlayer.getVideoDuration() / 1000;
+                    binding.totalTime.setText(String.valueOf(duration) + "s");
+                    binding.seekBar.setMax(duration);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
 
             @Override
@@ -60,70 +77,75 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        playBtn.setOnClickListener(new View.OnClickListener() {
+        binding.playBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playTask.play();
+
             }
         });
 
-        pauseBtn.setOnClickListener(new View.OnClickListener() {
+        binding.pauseBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playTask.pause();
             }
         });
 
-        previousBtn.setOnClickListener(new View.OnClickListener() {
+        binding.previousBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playTask.previous(5000);
             }
         });
 
-        nextBtn.setOnClickListener(new View.OnClickListener() {
+        binding.nextBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 playTask.next(5000);
             }
         });
 
-    }
-
-    public void init_views() {
-        textureView = (TextureView) findViewById(R.id.textureView);
-        playBtn = (ImageButton) findViewById(R.id.playBtn);
-        pauseBtn = (ImageButton) findViewById(R.id.pauseBtn);
-        previousBtn = (ImageButton) findViewById(R.id.previousBtn);
-        nextBtn = (ImageButton) findViewById(R.id.nextBtn);
-        seekBar = (SeekBar) findViewById(R.id.seekBar);
-    }
-
-    private void setFeedback() {
-        feedback = new VideoPlayer.PlayerFeedback() {
+        binding.seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
-            public void playbackPaused() {
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
 
+                if(touch) {
+                    playTask.seekTo(progress * 1000);
+                    Log.d("테스트", String.valueOf(progress * 1000));
+                }
+                binding.curTime.setText((progress) + "s");
             }
 
             @Override
-            public void playbackResumed() {
-
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                touch = true;
             }
 
             @Override
-            public void playbackPositionChanged() {
-
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                touch = false;
             }
-        };
+        });
+
     }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        playTask.release();
+    }
+
+    // ---------------------------------------------------------------
+    //
+    //
 
     private void setFrameCallBack() {
         frameCallBack = new VideoPlayer.FrameCallBack() {
             @Override
             public void postRender(long presentationTimeUsec) {
                 //seekbar 조정
-                seekBar.setProgress((int) (presentationTimeUsec / 1000));
+                binding.seekBar.setProgress((int) (presentationTimeUsec / 1000));
             }
         };
     }
