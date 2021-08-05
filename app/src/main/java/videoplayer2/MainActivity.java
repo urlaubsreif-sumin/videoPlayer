@@ -1,16 +1,12 @@
 package videoplayer2;
 
-import android.app.Activity;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.SurfaceTexture;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.widget.ImageButton;
 import android.widget.SeekBar;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -47,50 +43,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         // FrameCallBack 세팅: Frame이 렌더링 될 때 마다 SeekBar 값 조정
         setFrameCallBack();
     
-        // textureView Listener 세팅
-        binding.textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            
-            // TextureView 준비 완료 -> PlayTask, VideoPlayer 초기화
-            @Override
-            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-                try {
-                    // 영상 파일
-                    AssetFileDescriptor videoFile = getResources().openRawResourceFd(R.raw.video);
-
-                    // VideoPlayer 초기화
-                    videoPlayer = new VideoPlayer(videoFile, new Surface(surface), frameCallBack);
-
-                    // PlayTask 초기화
-                    playTask = new PlayTask(videoPlayer);
-
-                    // 영상 길이에 맞게 View 업데이트
-                    int duration = videoPlayer.getVideoDuration() / 1000;
-                    setDurationOnView(duration);
-
-                    // play/pause/next/previous 버튼 ClickListener 세팅
-                    setOnClickListener();
-
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
-
-            }
-
-            @Override
-            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
-                return false;
-            }
-
-            @Override
-            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
-
-            }
-        });
-
+        // TextureView 세팅
+        initTextureView();
 
         // SeekBar Listner 세팅
         binding.seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -154,6 +108,53 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     // ---------------------------------------------------------------
     // internal methods.
     //
+
+    private void initTextureView() {
+        // textureView Listener 세팅
+        binding.textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+
+            // TextureView 준비 완료 -> PlayTask, VideoPlayer 초기화
+            @Override
+            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+                try {
+                    // 영상 파일
+                    AssetFileDescriptor videoFile = getResources().openRawResourceFd(R.raw.video);
+
+                    // VideoPlayer 초기화
+                    videoPlayer = new VideoPlayer(videoFile, new Surface(surface), frameCallBack);
+
+                    // PlayTask 초기화
+                    playTask = new PlayTask(videoPlayer);
+
+                    // 영상 길이에 맞게 View 업데이트
+                    int duration = videoPlayer.getVideoDuration() / 1000;
+                    setDurationOnView(duration);
+
+                    // play/pause/next/previous 버튼 ClickListener 세팅
+                    setOnClickListener();
+
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
+
+            }
+
+            @Override
+            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+                return false;
+            }
+
+            @Override
+            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
+
+            }
+        });
+    }
+
 
     /**
      * Frame이 렌더링 될 때 호출되는 콜백 메서드

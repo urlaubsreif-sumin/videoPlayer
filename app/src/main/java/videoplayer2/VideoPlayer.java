@@ -4,8 +4,6 @@ import android.content.res.AssetFileDescriptor;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.os.SystemClock;
-import android.util.Log;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -17,12 +15,10 @@ public class VideoPlayer {
     private FrameCallBack frameCallBack;
 
     private MediaExtractor extractor;
-    private MediaCodec codec;
+    private MediaCodec decoder;
     private MediaCodec.BufferInfo bufferInfo;
 
     private int video_duration;
-    private int video_height;
-    private int video_weight;
 
     private final int TIMEOUT_USEC = 1000;
 
@@ -33,9 +29,10 @@ public class VideoPlayer {
     //
 
     public interface FrameCallBack {
-        // 부분 렌더링 이후 호출 -> seekBar 조정
+        // 부분 렌더링 직후 호출되는 콜백 메서드 -> ui 업데이트
         void postRender(long presentationTimeUsec);
     }
+
 
     // ---------------------------------------------------------------
     // Constructor
@@ -45,14 +42,17 @@ public class VideoPlayer {
         this.videoFile = videoFile;
         this.outputSurface = outputSurface;
         this.frameCallBack = frameCallBack;
-
-
     }
+
 
     // ---------------------------------------------------------------
     //
     //
 
+    /**
+     * Player 시작
+     * @throws IOException
+     */
     public void open() throws IOException {
         extractor = new MediaExtractor();
         extractor.setDataSource(videoFile);
@@ -63,58 +63,68 @@ public class VideoPlayer {
             throw new IOException("can't open video file.");
         }
 
-        codec.start();
+        decoder.start();
     }
 
+
+    /**
+     * release resources.
+     */
     public void close() {
-        codec.stop();
-        codec.release();
-        codec = null;
+        decoder.stop();
+        decoder.release();
+        decoder = null;
 
         extractor.release();
         extractor = null;
     }
 
+
     /**
-     * videoFile 읽어서 inputBuffer에 저장
+     * videoFile을 sampleSize 만큼 읽어서 inputBuffer에 저장
      * @return videoFile 끝까지 읽은 경우 -> true
      */
     public boolean inputBuffer() {
-        int inputBufIndex = codec.dequeueInputBuffer(TIMEOUT_USEC);
+        int inputBufIndex = decoder.dequeueInputBuffer(TIMEOUT_USEC);
 
+        // 읽을 수 있는 상태인 경우
         if(inputBufIndex >= 0) {
-            ByteBuffer inputBuf = codec.getInputBuffer(inputBufIndex);
+            ByteBuffer inputBuf = decoder.getInputBuffer(inputBufIndex);
             int sampleSize = extractor.readSampleData(inputBuf, 0);
-            Log.d("테스트", "sample size: " + sampleSize);
+
             // 영상 끝까지 모두 읽은 경우
             if(sampleSize < 0) {
-                codec.queueInputBuffer(inputBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                decoder.queueInputBuffer(inputBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                 return true;
             }
 
             // 읽을 영상이 남은 경우
             else {
-                codec.queueInputBuffer(inputBufIndex, 0, sampleSize, extractor.getSampleTime(), 0);
+                decoder.queueInputBuffer(inputBufIndex, 0, sampleSize, extractor.getSampleTime(), 0);
                 extractor.advance();
             }
         }
         return false;
     }
 
-    public boolean outputBuffer(int codecStatus) {
+
+    /**
+     * outputBuffer 읽어서 Surface에 렌더링
+     * @param outputBufIndex
+     * @return
+     */
+    public boolean outputBuffer(int outputBufIndex) {
         long curPresentationTimeMs = bufferInfo.presentationTimeUs / 1000;
 
-
         // 영상 출력
-        Log.d("테스트", "codec status: " + codecStatus);
-        codec.releaseOutputBuffer(codecStatus, true);
+        decoder.releaseOutputBuffer(outputBufIndex, true);
 
-        // 현재 재생 시간에 맞게 SeekBar 조정하기 위한 콜백
+        // 영상 렌더링 직후 -> ui 업데이트(SeekBar, TextView)를 위한 콜백 메서드 호출
         if(frameCallBack != null) {
             frameCallBack.postRender(curPresentationTimeMs);
         }
 
-        // 영상 끝까지 출력한 경우
+        // 영상 끝까지 출력 완료한 경우
         if((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
             return true;
         }
@@ -122,27 +132,40 @@ public class VideoPlayer {
         return false;
     }
 
+    /**
+     * 목표 재생 지점 탐색
+     * @param seekTimeMs
+     */
     public void seekTo(long seekTimeMs) {
         extractor.seekTo(seekTimeMs * 1000, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-        codec.flush();
+
+        // flush input&output Buffer
+        decoder.flush();
     }
+
 
     public long getPresentationTimeMs() {
         return bufferInfo.presentationTimeUs / 1000;
     }
 
     public int getCodecStatus() {
-        return codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
+        return decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
     }
 
     public int getVideoDuration() {
         return video_duration;
     }
 
+
     // ---------------------------------------------------------------
-    //
+    // internal methods.
     //
 
+    /**
+     * 재생 가능한 첫 번째 Track 찾기
+     * @return
+     * @throws IOException
+     */
     private boolean initWithFirstTrack() throws IOException {
         int numTracks = extractor.getTrackCount();
 
@@ -151,11 +174,14 @@ public class VideoPlayer {
             String mime = format.getString(MediaFormat.KEY_MIME);
 
             if(mime.startsWith("video/")) {
+                // 실행 가능한 첫 번째 Track 선택
                 extractor.selectTrack(i);
-
-                codec = MediaCodec.createDecoderByType(mime);
-                codec.configure(format, outputSurface, null, 0);
-
+                
+                // decoder 생성
+                decoder = MediaCodec.createDecoderByType(mime);
+                decoder.configure(format, outputSurface, null, 0);
+                
+                // 영상 길이 변수 세팅
                 video_duration = (int) (format.getLong(MediaFormat.KEY_DURATION) / 1000);
 
                 return true;
