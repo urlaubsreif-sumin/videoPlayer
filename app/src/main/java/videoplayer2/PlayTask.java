@@ -93,15 +93,15 @@ public class PlayTask implements Runnable {
         }
     }
 
-    public void previous(int unitTime) {
+    public void previous(int unitTimeMs) {
         synchronized (seekLock) {
-            seekTimeMs = curTimeMs - unitTime;
+            seekTimeMs = curTimeMs - unitTimeMs;
         }
     }
 
-    public void next(int unitTime) {
+    public void next(int unitTimeMs) {
         synchronized (seekLock) {
-            seekTimeMs = curTimeMs + unitTime;
+            seekTimeMs = curTimeMs + unitTimeMs;
         }
     }
 
