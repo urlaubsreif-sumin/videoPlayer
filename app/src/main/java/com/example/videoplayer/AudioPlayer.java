@@ -138,7 +138,25 @@ public class AudioPlayer {
     }
 
 
+    /**
+     * 목표 재생 지점 탐색
+     * @param seekTimeMs
+     */
+    public void seekTo(long seekTimeMs) {
+        // 목표 지점까지 탐색
+        extractor.seekTo(seekTimeMs * 1000, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
 
+        // flush input&output Buffer
+        decoder.flush();
+    }
+
+    public long getPresentationTimeMs() {
+        return bufferInfo.presentationTimeUs / 1000;
+    }
+
+    public int getCodecStatus() {
+        return decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
+    }
 
 
     // ---------------------------------------------------------------

@@ -25,12 +25,9 @@ public class VideoPlayer {
     private AssetFileDescriptor videoFile; // 영상 파일
     private Surface outputSurface; // 출력 Surface
 
-    private MediaExtractor videoExtractor;
-    private MediaExtractor audioExtractor;
-    private MediaCodec videoDecoder;
-    private MediaCodec audioDecoder;
-    private MediaCodec.BufferInfo videoBufferInfo;
-    private MediaCodec.BufferInfo audioBufferInfo;
+    private MediaExtractor extractor;
+    private MediaCodec decoder;
+    private MediaCodec.BufferInfo bufferInfo;
 
     private int video_duration; // 영상 길이
 
@@ -74,26 +71,18 @@ public class VideoPlayer {
      * @throws IOException
      */
     public void open() throws IOException {
-        videoExtractor = new MediaExtractor();
-        videoExtractor.setDataSource(videoFile);
+        extractor = new MediaExtractor();
+        extractor.setDataSource(videoFile);
 
-        audioExtractor = new MediaExtractor();
-        audioExtractor.setDataSource(videoFile);
-
-        videoBufferInfo = new MediaCodec.BufferInfo();
-        audioBufferInfo = new MediaCodec.BufferInfo();
+        bufferInfo = new MediaCodec.BufferInfo();
         
         // 첫번째 트랙 디코딩 설정
         if(!initWithFirstVideoTrack()) {
             throw new IOException("can't open video file.");
         }
-
-        if(!initWithFirstAudioTrack()) {
-            throw new IOException("can't open audio file.");
-        }
         
         // 디코딩 시작
-        videoDecoder.start();
+        decoder.start();
     }
 
 
@@ -101,15 +90,12 @@ public class VideoPlayer {
      * release resources.
      */
     public void close() {
-        videoDecoder.stop();
-        videoDecoder.release();
-        videoDecoder = null;
+        decoder.stop();
+        decoder.release();
+        decoder = null;
 
-        videoExtractor.release();
-        videoExtractor = null;
-
-        audioExtractor.release();
-        audioExtractor = null;
+        extractor.release();
+        extractor = null;
     }
 
 
@@ -117,45 +103,25 @@ public class VideoPlayer {
      * videoFile을 sampleSize 만큼 읽어서 inputBuffer에 저장
      * @return videoFile 끝까지 읽은 경우 -> true
      */
-    public boolean bufferVideoToInputBuffer() {
-        int inputVideoBufIndex = videoDecoder.dequeueInputBuffer(TIMEOUT_USEC);
+    public boolean bufferToInputBuffer() {
+        int inputVideoBufIndex = decoder.dequeueInputBuffer(TIMEOUT_USEC);
 
 
         // 읽을 수 있는 상태인 경우
         if(inputVideoBufIndex >= 0) {
-            ByteBuffer inputBuf = videoDecoder.getInputBuffer(inputVideoBufIndex);
-            int sampleSize = videoExtractor.readSampleData(inputBuf, 0);
+            ByteBuffer inputBuf = decoder.getInputBuffer(inputVideoBufIndex);
+            int sampleSize = extractor.readSampleData(inputBuf, 0);
 
             // 영상 끝까지 모두 읽은 경우
             if(sampleSize < 0) {
-                videoDecoder.queueInputBuffer(inputVideoBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                decoder.queueInputBuffer(inputVideoBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                 return true;
             }
 
             // 읽을 영상이 남은 경우
             else {
-                videoDecoder.queueInputBuffer(inputVideoBufIndex, 0, sampleSize, videoExtractor.getSampleTime(), 0);
-                videoExtractor.advance();
-            }
-        }
-
-        return false;
-    }
-
-    public boolean bufferAudioToInputBuffer() {
-        int inputAudioBufIndex = audioDecoder.dequeueInputBuffer(TIMEOUT_USEC);
-        if(inputAudioBufIndex >= 0) {
-            ByteBuffer inputAudioBuf = audioDecoder.getInputBuffer(inputAudioBufIndex);
-            int sampleSize = audioExtractor.readSampleData(inputAudioBuf, 0);
-
-            if(sampleSize < 0) {
-                audioDecoder.queueInputBuffer(inputAudioBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                return true;
-            }
-
-            else {
-                audioDecoder.queueInputBuffer(inputAudioBufIndex, 0, sampleSize, audioExtractor.getSampleTime(), 0);
-                audioExtractor.advance();
+                decoder.queueInputBuffer(inputVideoBufIndex, 0, sampleSize, extractor.getSampleTime(), 0);
+                extractor.advance();
             }
         }
 
@@ -168,11 +134,11 @@ public class VideoPlayer {
      * @param outputVideoBufIndex
      * @return
      */
-    public boolean renderVideoFromOutputBuffer(int outputVideoBufIndex) {
-        long curPresentationTimeMs = videoBufferInfo.presentationTimeUs / 1000;
+    public boolean renderFromOutputBuffer(int outputVideoBufIndex) {
+        long curPresentationTimeMs = bufferInfo.presentationTimeUs / 1000;
 
         // 영상 출력
-        videoDecoder.releaseOutputBuffer(outputVideoBufIndex, true);
+        decoder.releaseOutputBuffer(outputVideoBufIndex, true);
         Log.d("테스트", "release!");
 
         // 영상 렌더링 직후 -> ui 업데이트(SeekBar, TextView)를 위한 콜백 메서드 호출
@@ -181,21 +147,10 @@ public class VideoPlayer {
         }
 
         // 영상 끝까지 출력 완료한 경우
-        if((videoBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+        if((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
             return true;
         }
 
-        return false;
-    }
-
-    public boolean renderAudioFromOutputBuffer(int outputAudioBufIndex) {
-        long curPresentationTimeMs = audioBufferInfo.presentationTimeUs / 1000;
-
-        audioDecoder.releaseOutputBuffer(outputAudioBufIndex, true);
-
-        if((audioBufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-            return true;
-        }
         return false;
     }
 
@@ -206,34 +161,23 @@ public class VideoPlayer {
      */
     public void seekTo(long seekTimeMs) {
         // 목표 지점까지 탐색
-        videoExtractor.seekTo(seekTimeMs * 1000, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-        audioExtractor.seekTo(seekTimeMs * 1000, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-
-
+        extractor.seekTo(seekTimeMs * 1000, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
 
         // flush input&output Buffer
-        videoDecoder.flush();
-        audioDecoder.flush();
+        decoder.flush();
 
 
     }
 
 
-    public long getPresentationVideoTimeMs() {
-        return videoBufferInfo.presentationTimeUs / 1000;
+    public long getPresentationTimeMs() {
+        return bufferInfo.presentationTimeUs / 1000;
     }
 
-    public long getPresentationAudioTimeMs() {
-        return audioBufferInfo.presentationTimeUs / 1000;
+    public int getCodecStatus() {
+        return decoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
     }
 
-    public int getVideoCodecStatus() {
-        return videoDecoder.dequeueOutputBuffer(videoBufferInfo, TIMEOUT_USEC);
-    }
-
-    public int getAudioCodecStatus() {
-        return audioDecoder.dequeueOutputBuffer(audioBufferInfo, TIMEOUT_USEC);
-    }
 
     public int getVideoDuration() {
         return video_duration;
@@ -250,20 +194,20 @@ public class VideoPlayer {
      * @throws IOException
      */
     private boolean initWithFirstVideoTrack() throws IOException {
-        int numTracks = videoExtractor.getTrackCount();
+        int numTracks = extractor.getTrackCount();
         Log.d("테스트", "track: " + numTracks);
 
         for(int i = 0; i < numTracks; i++) {
-            MediaFormat format = videoExtractor.getTrackFormat(i);
+            MediaFormat format = extractor.getTrackFormat(i);
             String mime = format.getString(MediaFormat.KEY_MIME);
 
             if(mime.startsWith("video/")) {
                 // 실행 가능한 첫 번째 Track 선택
-                videoExtractor.selectTrack(i);
+                extractor.selectTrack(i);
 
                 // decoder 생성
-                videoDecoder = MediaCodec.createDecoderByType(mime);
-                videoDecoder.configure(format, outputSurface, null, 0);
+                decoder = MediaCodec.createDecoderByType(mime);
+                decoder.configure(format, outputSurface, null, 0);
                 
                 // 영상 길이 변수 세팅
                 video_duration = (int) (format.getLong(MediaFormat.KEY_DURATION) / 1000);
@@ -274,24 +218,6 @@ public class VideoPlayer {
         return true;
     }
 
-    private boolean initWithFirstAudioTrack() throws IOException {
-        int numTracks = audioExtractor.getTrackCount();
-
-        for(int i = 0; i < numTracks; i++) {
-            MediaFormat format = audioExtractor.getTrackFormat(i);
-            String mime = format.getString(MediaFormat.KEY_MIME);
-
-            if(mime.startsWith("audio/")) {
-                audioExtractor.selectTrack(i);
-
-                audioDecoder = MediaCodec.createDecoderByType(mime);
-                audioDecoder.configure(format, null, null, 0);
-
-                return true;
-            }
-        }
-        return false;
-    }
 
 
 }

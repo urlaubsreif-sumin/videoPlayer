@@ -145,6 +145,7 @@ public class PlayTask implements Runnable {
             synchronized (seekLock) {
                 if(seekTimeMs != -1) {
                     videoPlayer.seekTo(seekTimeMs);
+                    audioPlayer.seekTo(seekTimeMs);
 
                     curTimeMs = seekTimeMs;
 
@@ -160,7 +161,6 @@ public class PlayTask implements Runnable {
             
             // outputBuffer -> 렌더링
             if(!outEOS) {
-                
                 int codecStatus = videoPlayer.getCodecStatus();
                 
                 // 렌더링 가능한 상태이면
