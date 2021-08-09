@@ -28,8 +28,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     //
 
     VideoPlayer.FrameCallBack frameCallBack;
+    AudioPlayer.FrameCallBack audioFrameCallBack;
     PlayTask playTask;
     VideoPlayer videoPlayer;
+    AudioPlayer audioPlayer;
 
     boolean touch;
 
@@ -132,8 +134,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     // VideoPlayer 초기화
                     videoPlayer = new VideoPlayer(videoFile, new Surface(surface), frameCallBack);
 
+                    audioPlayer = new AudioPlayer(videoFile, null, audioFrameCallBack);
+
+
                     // PlayTask 초기화
-                    playTask = new PlayTask(videoPlayer);
+                    playTask = new PlayTask(videoPlayer, audioPlayer);
 
                     // 영상 길이에 맞게 View 업데이트
                     int duration = videoPlayer.getVideoDuration() / 1000;
@@ -174,6 +179,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void postRender(long presentationTimeUsec) {
                 // seekbar 조정
                 binding.seekBar.setProgress((int) (presentationTimeUsec / 1000));
+            }
+        };
+
+        audioFrameCallBack = new AudioPlayer.FrameCallBack() {
+            @Override
+            public void postRender(long presentationTimeUsec) {
+                binding.seekBar2.setProgress((int) (presentationTimeUsec / 1000));
             }
         };
     }

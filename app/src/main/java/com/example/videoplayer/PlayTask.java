@@ -4,7 +4,8 @@ import java.io.IOException;
 
 public class PlayTask implements Runnable {
     
-    private VideoPlayer player;
+    private VideoPlayer videoPlayer;
+    private AudioPlayer audioPlayer;
     private Thread thread; // 영상 재생 Thread
 
     private boolean inEOS = false; // 영상 파일 -> inputBuffer 이동 완료 여부
@@ -25,13 +26,15 @@ public class PlayTask implements Runnable {
     // Constructor.
     //
     
-    public PlayTask(VideoPlayer player) throws IOException {
-        this.player = player;
+    public PlayTask(VideoPlayer videoPlayer, AudioPlayer audioPlayer) throws IOException {
+        this.videoPlayer = videoPlayer;
+        this.audioPlayer = audioPlayer;
 
         initLocks();
 
         // Player 시작
-        player.open();
+        videoPlayer.open();
+        audioPlayer.open();
         isPlayerValid = true;
         
         // 영상 재생 Thread 시작
@@ -107,7 +110,7 @@ public class PlayTask implements Runnable {
      */
     public void next(int unitTimeMs) {
         synchronized (seekLock) {
-            seekTimeMs = Math.min(player.getVideoDuration(), curTimeMs + unitTimeMs); // 목표 재생 지점은 반드시 영상 길이 이하
+            seekTimeMs = Math.min(videoPlayer.getVideoDuration(), curTimeMs + unitTimeMs); // 목표 재생 지점은 반드시 영상 길이 이하
         }
     }
 
@@ -117,7 +120,7 @@ public class PlayTask implements Runnable {
     public void release() {
         isPlayerValid = false;
         thread.interrupt();
-        player.close();
+        videoPlayer.close();
     }
     
     
@@ -141,7 +144,7 @@ public class PlayTask implements Runnable {
             // 목표 재생 지점까지 이동
             synchronized (seekLock) {
                 if(seekTimeMs != -1) {
-                    player.seekTo(seekTimeMs);
+                    videoPlayer.seekTo(seekTimeMs);
 
                     curTimeMs = seekTimeMs;
 
@@ -152,17 +155,17 @@ public class PlayTask implements Runnable {
             
             // 파일 -> inputBuffer 저장
             if(!inEOS) {
-                inEOS = player.bufferToInputBuffer();
+                inEOS = videoPlayer.bufferToInputBuffer();
             }
             
             // outputBuffer -> 렌더링
             if(!outEOS) {
                 
-                int codecStatus = player.getCodecStatus();
+                int codecStatus = videoPlayer.getCodecStatus();
                 
                 // 렌더링 가능한 상태이면
                 if(codecStatus >= 0) {
-                    curTimeMs = player.getPresentationTimeMs(); // 현재 재생 위치
+                    curTimeMs = videoPlayer.getPresentationTimeMs(); // 현재 재생 위치
 
                     // 재생 시간 & 실제 시간 동기화 작업
                     while(curTimeMs > (System.currentTimeMillis() - startSystemTimeMs)) {
@@ -184,7 +187,7 @@ public class PlayTask implements Runnable {
                     }
                     
                     // 영상 렌더링
-                    outEOS = player.renderFromOutputBuffer(codecStatus);
+                    outEOS = videoPlayer.renderFromOutputBuffer(codecStatus);
                 }
             }
             
